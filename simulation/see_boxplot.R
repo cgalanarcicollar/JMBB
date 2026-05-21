@@ -25,8 +25,8 @@ make_file_grid <- function(base_path, prefix, phi_suffixes, phi_values,
   grid
 }
 
-# --- load results ---
-make_plot_data <- function(grid_df, jm_name = "JMBB", ts_name = "TSBB") {
+# --- load results for alpha ---
+make_plot_data_alpha <- function(grid_df, jm_name = "JMBB", ts_name = "TSBB") {
   rows <- list()
   for (i in seq_len(nrow(grid_df))) {
     f <- grid_df$file[i]
@@ -58,9 +58,51 @@ make_plot_data <- function(grid_df, jm_name = "JMBB", ts_name = "TSBB") {
   df
 }
 
-# --- box plot ---
-plot_bias <- function(df, alpha_levels, alpha_labels) {
-  df %>%
+# --- load results for beta1 ---
+make_plot_data_beta1 <- function(grid_df, jm_name = "JMBB", ts_name = "TSBB") {
+  rows <- list()
+  for (i in seq_len(nrow(grid_df))) {
+    f <- grid_df$file[i]
+    if (!file.exists(f)) stop("File not found: ", f)
+    
+    out <- readRDS(f)
+    
+    # numeric values from different scenarios
+    phi <- grid_df$phi_numeric[i]
+    alpha <- grid_df$alpha_numeric[i]
+    
+    # Extract true beta1 value from out$parameters[[3]][2]
+    true_beta1 <- out$parameters[[3]][2]
+    
+    # Extract estimated beta1 from the correct locations
+    jm_beta1 <- out$result_JM$long$beta1[,1]
+    ts_beta1 <- out$result_TS$longitudinal$beta1[,1]
+    
+    # Calculate relative bias for each estimate
+    jm_bias <- (jm_beta1 - true_beta1) / true_beta1
+    ts_bias <- (ts_beta1 - true_beta1) / true_beta1
+    
+    rows[[length(rows) + 1]] <- cbind(jm_bias, alpha, phi, jm_name)
+    rows[[length(rows) + 1]] <- cbind(ts_bias, alpha, phi, ts_name)
+  }
+  
+  df <- as.data.frame(do.call(rbind, rows))
+  colnames(df) <- c("bias", "alpha", "phi", "model")
+  
+  df <- df %>%
+    mutate(
+      bias  = as.numeric(bias),
+      alpha = as.numeric(alpha),
+      phi   = as.factor(phi),           
+      model = factor(model, levels = c(jm_name, ts_name))
+    )
+  
+  df
+}
+
+# --- box plot for alpha ---
+plot_bias_alpha <- function(df, alpha_levels, alpha_labels, show_y_label = TRUE) {
+  p <- df %>%
     mutate(
       Alpha = factor(alpha, levels = alpha_levels, labels = alpha_labels)
     ) %>%
@@ -77,8 +119,48 @@ plot_bias <- function(df, alpha_levels, alpha_labels) {
     facet_grid(cols = vars(Alpha), labeller = label_parsed) +
     xlab(expression(Phi)) +
     geom_hline(yintercept = 0, col = "red")
+  
+  if (show_y_label) {
+    p <- p + ylab(expression("Relative bias of " * alpha))
+  } else {
+    p <- p + ylab(NULL)
+  }
+  
+  return(p)
 }
 
+# --- box plot for beta1 ---
+plot_bias_beta1 <- function(df, alpha_levels, alpha_labels, show_y_label = TRUE) {
+  p <- df %>%
+    mutate(
+      Alpha = factor(alpha, levels = alpha_levels, labels = alpha_labels)
+    ) %>%
+    ggplot(aes(x = phi, y = bias, fill = model)) +
+    geom_boxplot() +
+    theme(
+      panel.background = element_blank(),
+      panel.border = element_rect(color = "black", fill = NA, size = 1)
+    ) +
+    scale_fill_discrete(
+      breaks = c("JMBB", "TSBB"),
+      type = c(JMBB = "grey74", TSBB = "white")
+    ) +
+    facet_grid(cols = vars(Alpha), labeller = label_parsed) +
+    xlab(expression(Phi)) +
+    geom_hline(yintercept = 0, col = "red")
+  
+  if (show_y_label) {
+    p <- p + ylab(expression("Relative bias of " * beta[1]))
+  } else {
+    p <- p + ylab(NULL)
+  }
+  
+  return(p)
+}
+
+add_title <- function(plot, title) {
+  plot + ggtitle(title) + theme(plot.title = element_text(hjust = 0.5, size = 14))
+}
 
 ########################
 #         S1           #
@@ -86,7 +168,6 @@ plot_bias <- function(df, alpha_levels, alpha_labels) {
 
 phi_suffixes_s1 <- c("005", "05", "1")          
 phi_values_s1   <- c(0.05, 0.5, 1)              
-
 
 alpha_suffixes_s1 <- c("a0", "a2", "a4")
 alpha_values_s1   <- c(0, 2, 4)
@@ -100,18 +181,30 @@ s1_grid <- make_file_grid(
   alpha_values   = alpha_values_s1
 )
 
-s1_data <- make_plot_data(s1_grid)
+s1_alpha_data <- make_plot_data_alpha(s1_grid)
+s1_beta1_data <- make_plot_data_beta1(s1_grid)
 
-q1 <- plot_bias(
-  s1_data,
+q1_alpha <- plot_bias_alpha(
+  s1_alpha_data,
   alpha_levels = c("0", "2", "4"),
   alpha_labels = c(
     expression(paste(alpha, " = 0")),
     expression(paste(alpha, " = 2")),
     expression(paste(alpha, " = 4"))
-  )
+  ),
+  show_y_label = TRUE
 )
 
+q1_beta1 <- plot_bias_beta1(
+  s1_beta1_data,
+  alpha_levels = c("0", "2", "4"),
+  alpha_labels = c(
+    expression(paste(alpha, " = 0")),
+    expression(paste(alpha, " = 2")),
+    expression(paste(alpha, " = 4"))
+  ),
+  show_y_label = TRUE  # Cambiado a TRUE para que muestre el label
+)
 
 ########################
 #         S2           #
@@ -132,21 +225,45 @@ s2_grid <- make_file_grid(
   alpha_values   = alpha_values_s2
 )
 
-s2_data <- make_plot_data(s2_grid)
+s2_alpha_data <- make_plot_data_alpha(s2_grid)
+s2_beta1_data <- make_plot_data_beta1(s2_grid)
 
-q2 <- plot_bias(
-  s2_data,
+q2_alpha <- plot_bias_alpha(
+  s2_alpha_data,
   alpha_levels = c("0", "-1.5", "-3"),
   alpha_labels = c(
     expression(paste(alpha, " = 0")),
     expression(paste(alpha, " = -1.5")),
     expression(paste(alpha, " = -3"))
-  )
+  ),
+  show_y_label = FALSE
 )
 
-# ======== #
-# FIGURE 6 #
-# ======== #
+q2_beta1 <- plot_bias_beta1(
+  s2_beta1_data,
+  alpha_levels = c("0", "-1.5", "-3"),
+  alpha_labels = c(
+    expression(paste(alpha, " = 0")),
+    expression(paste(alpha, " = -1.5")),
+    expression(paste(alpha, " = -3"))
+  ),
+  show_y_label = FALSE
+)
 
-final_boxplot <- q1 + q2 + plot_layout(guides = "collect")
-final_boxplot
+# Add titles to each plot
+q1_alpha <- add_title(q1_alpha, "Scenario 1")
+q2_alpha <- add_title(q2_alpha, "Scenario 2")
+q1_beta1 <- add_title(q1_beta1, "Scenario 1")
+q2_beta1 <- add_title(q2_beta1, "Scenario 2")
+
+# ============== #
+# FIGURE 6 and 7 #
+# ============== #
+
+# Arrange alpha plots
+final_boxplot_alpha <- (q1_alpha | q2_alpha) + plot_layout(guides = "collect")
+final_boxplot_alpha
+
+# Arrange beta1 plots
+final_boxplot_beta1 <- (q1_beta1 | q2_beta1) + plot_layout(guides = "collect")
+final_boxplot_beta1
