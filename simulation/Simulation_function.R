@@ -130,7 +130,7 @@ simulation.function <- function(nSims,n,K,t.max,betas,phi,ntrial,alpha,nu,gamma,
     exY <- exp(etaY)/(1+exp(etaY)) # compute fitted value
     
     dataset$survival$exY <- exY
-    TS <- try(survival::coxph(survival::Surv(Time,event)~exY, data = dataset$survival))
+    TS <- try(survival::coxph(survival::Surv(L,Time,event)~exY, data = dataset$survival))
 
     sum.TS <- summary(TS)
     
